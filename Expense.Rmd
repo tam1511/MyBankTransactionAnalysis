@@ -1,0 +1,210 @@
+---
+title: "Expense Analysis"
+author: "Le Thi Thanh Tam"
+date: "8/31/2022"
+output: pdf_document
+---
+
+## Objectives
+
+* For this funny project, I just want to quickly analyze my own spending habit based on my personal bank account data.
+Since I realize that I am not good at personal financial management, figure out how much I spend per month to help me manage my money and save my life (:.
+
+* The data is stored in two years from Sep 2020 to August 2022 _ The time I've been to Korea.
+
+## Data Pre-processing
+
+```{r}
+# library packages
+library(readxl)
+library(data.table)
+library(ggplot2)
+library(dplyr)
+
+# Read data
+Sys.setlocale("LC_ALL","C")
+dt_in <- read_xls("E:/ThanhTam_DA/Project/BankTransaction.xls")
+Sys.setlocale("LC_ALL", "Korean")
+glimpse(dt_in)
+colnames(dt_in)
+# Let's say I just want to focus on my spendings amount so I will delete some unnecessary columns 
+# ("Deposit Amount", "Transaction Time", "Transaction Place")
+dt_dropped <- dt_in[,-(5:7)]
+# Also drop values equal 0 in 'Withdrawal Amount' column (it means these transactions is for 'Deposit Amount')
+dt <- dt_dropped[!(dt_dropped$`Withdrawal Amount` == 0),]
+
+# Rename column
+colnames(dt) = c("Date", "Category", "Name", "Amount")
+
+# Next Format the Date type
+# Add the Month and Year column to the data
+dt$Date <- as.Date(as.character(dt$Date), format = "%Y%m%d")
+dt$Month <- format(as.Date(dt$Date), "%m")
+dt$Year <- format(as.Date(dt$Date), "%Y")
+
+# Check missing values
+sum(is.na(dt)) # The numbers of NA values is too small we can delete 4 NA values
+dt[which(is.na(dt)),] 
+dt <- na.omit(dt)
+dt$Category = NULL
+head(dt)
+```
+
+## Analysis
+
+### 1. Fixed Expenses
+
+* First I want to see the average fixed expenses I spent per month
+* Fixed amount include house rent, phone bills, monthly transportation fee and donation
+
+```{r}
+# By identify repeated name by month
+# Count values by column 'Name' and 'Amount'
+dt <- data.table(dt)
+is.data.table(dt)
+dt[, freq := .N, by = .(Name, Amount)] # count by Name
+
+# Assign values have frequency bigger than 1 is a fixed amount
+dt[freq>1, type := "fixed"]
+# Create new data frame with only those fixed values
+dt_fixed <- dt[type=="fixed"]
+
+# Let have a look at the  new data
+summary(dt_fixed)
+
+# Sort the data in increasing order by column freq
+dt_fixed_sorted <- dt_fixed[order((dt_fixed$freq),decreasing = TRUE), ]
+head(dt_fixed_sorted, n=20) # I wanna see what catogory I spent most frequently (20 times) --> it turns out the convinient store near my last company (: 
+
+## It seems like including more others variable expenses
+## So I need to classify and assign fixed expense only catogories including: house rent, phone bills, bank transportation fee and donation
+#------------------------------
+
+# Create a new data frame with adding the frequency column by 'Name' column
+dt[, freq := .N, by = .(Name)] # Count by Name
+data <- dt[freq>1]
+data$type = NULL
+
+##1. house rent
+# Assign 'house rent' values to Category column
+rent.key <- c("김사묵", "NGUYEN NGO", "허길행","한전(김명섭)","한전(김순묵)")
+rent.key.pattern <- paste(rent_key, collapse = "|")
+data[grepl(rent_key_pattern, Name), Category := "house rent"]
+
+##2. phone bills
+# Assign 'phone bills' values to Catogory column
+phone.bill <- c("LGU+통신요금자동","LGU+LE THI","KT7906159606","KT7906159604", "KT7906159608","KT7906159601", "KT7906159603", "KT7906159607", "KT7906159609","통신판매(ARS)_나")
+phone.bill.pattern <- paste(phone_bill, collapse = "|")
+data[grepl(phone_bill_pattern, Name), Category := "phone bill"]
+
+#3. Transportation fee
+# Assign monhly 'transpotation' fee to Category column
+trans.key <- c("하나카드_체크","레티따인떰(하나카드)","하나카드")
+trans.key.pattern <- paste(trans_key, collapse = "|")
+data[grepl(trans_key_pattern, Name), Category := "transportation"]
+
+#4. donation
+# Asign 'donation' value to Category column
+data$Category[data$Name == "후원금구(1)_나이"] = "donation"
+
+
+# Now Create a data frame for fixed expenses above and compute how much spendings I did by month per year
+data_fixed_exp <- data[(data$Category == "house rent"| data$Category == "phone bill"| 
+                          data$Category == "transportation"|data$Category =="donation"),]
+
+# The total fixed amount I spent per month
+FixedExp_by_month <- data_fixed_exp[, .(FixedExpense = sum(Amount)), by = .(Month=paste(Month, "/", Year))]
+
+# Vizualization
+FixedExp_by_month[, Month := factor(Month, levels = Month)]
+
+ggplot(data = FixedExp_by_month, aes(x=Month, y = FixedExpense)) +
+  geom_bar(stat = "identity", fill = "#219ebc") +
+  geom_hline(aes(yintercept = mean(FixedExpense), color="red")) +
+  theme(axis.text.x = element_text(size = 5,angle = 45, vjust = 0.5, hjust=1))
+
+# It looks like my fixed expenses varied much --> i want to see more in details
+#-----------------------------
+# Classify by each category to see spendings in each one
+FixedExp_by_category <- data_fixed_exp[, .(FixedExpense = sum(Amount)), 
+                                       by = .(Month=paste(Month, "/", Year), Category)]
+
+FixedExp_by_category[, Month := factor(Month, levels = unique(Month))]
+
+ggplot(data = FixedExp_by_category, aes(fill = Category,y = FixedExpense, x =Month)) +
+  geom_bar(position="stack", stat="identity") +
+  ggtitle("Fixed Expenses of each Category by Month") +
+  geom_hline(aes(yintercept = mean(FixedExpense), color="red", show_guide = FALSE)) +
+  theme(axis.text.x = element_text(size = 5,angle = 45, vjust = 0.5, hjust=1))
+
+# As expected, 'house rent' costs the highest amount and it did not remain contant since I also paid for deposit house rent and advance payment
+# But in general the average fixed amount that i need to pay some how under 250,000 KRW . It is a good sign (:
+# Anyway I may consider my T-money Card and also paid phone fees have increased dramatically last month to decrease these costs.
+
+ex <- data[order((dt_fixed$Amount),decreasing = TRUE),]
+a <- data.frame(table(ex$Name))
+a[order((a$Freq),decreasing=TRUE),]
+```
+
+### 2. Variable Expenses
+
+* Variable Expenses are known as expenses which change from month to month (dining out, medical expenses, groceries or anything buy from a store). By understand my spending behaviour, i could lower those.
+
+### 2.1. Food Expense
+
+* I want to see How much I spent for eat out per month
+
+```{r}
+food_key <- c("큰맘할매순대국우", "요기요(제휴카드)", "쥬봉쌀국수", "텐더(TENDER)",
+              "솔뫼해장국","윤가네옛날통닭&","KFC가산디지털점", "빵이가", "AKIMOTO MA",
+              "가마솥서울깍두기", "손큰할매순대국", "연이자카야")
+food_key_pattern <- paste(food_key, collapse = "|")
+data[grepl(food_key_pattern, Name), Category := "food"]
+
+# Compute
+FoodExp_by_month <- data[data$Category == "food", .(FoodExpense = sum(Amount)), by = .(Month=paste(Month, "/", Year))]
+
+# Vizualization
+FoodExp_by_month[, Month := factor(Month, levels = Month)]
+
+ggplot(data = FoodExp_by_month, aes(x=Month, y = FoodExpense)) +
+  geom_bar(stat = "identity", fill = "#6495ED") +
+  ggtitle("Food Expense") +
+  ylim(0,100000) + 
+  geom_hline(aes(yintercept = mean(FoodExpense))) + 
+  theme(axis.text.x = element_text(size = 5,angle = 45, vjust = 0.5, hjust=1))
+
+# I tended to decrease my habit to eat outside. Good !
+
+
+```
+
+### 2.2 Cafe Expense
+
+```{r}
+cafe_key <- c( "투썸플레이스서린", "팔공티우송대학교", "공차우송대점"
+             ,"투썸플레이스서울", "스타벅스코리아", "팔공티은행점",
+              "공차", "스타벅스커피코리", "공차대전복합터미", "만랩커피신설동역")
+cafe_key_pattern <- paste(cafe_key, collapse = "|")
+data[grepl(cafe_key_pattern, Name), Category := "cafe"]
+data$Category[data$Name == "카페1800(cafe180" ] = "cafe"
+data$Category[data$Name == "redLcoffee(레드" ] = "cafe"
+
+# Compute
+
+CafeExp_by_month <- data[data$Category == "cafe", .(CafeExpense = sum(Amount)), by = .(Month=paste(Month, "-", Year))]
+
+# Vizualization
+CafeExp_by_month[, Month := factor(Month, levels = Month)]
+
+ggplot(data = CafeExp_by_month, aes(x=Month, y = CafeExpense)) +
+  geom_bar(stat = "identity", fill = "#fb8500") +
+  ylim(0,200000) + 
+  ggtitle("Cafe Expense") +
+  geom_hline(aes(yintercept = mean(CafeExpense))) +
+  theme(axis.text.x = element_text(size = 5,angle = 45, vjust = 0.5, hjust=1))
+
+
+```
+
+
